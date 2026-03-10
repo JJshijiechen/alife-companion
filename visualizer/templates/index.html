@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>ALife Visualizer</title>
+    <link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet">
+</head>
+<body data-theme="midnight">
+    <div id="appShell">
+        <header class="titlebar">
+            <div>
+                <h1>ALife Research Demo Dashboard - Your Best Alife Companion!</h1>
+                <p>Differentiable robot locomotion with real-time telemetry</p>
+            </div>
+            <div class="status-chip">
+                <span class="status-dot" id="statusDot"></span>
+                <span id="statusText">Connecting...</span>
+            </div>
+        </header>
+
+        <div id="errorBanner" class="error-banner" hidden></div>
+
+        <main class="dashboard">
+            <section class="main-column">
+                <div class="metric-grid">
+                    <div class="metric-card">
+                        <div class="metric-label">Selected Files</div>
+                        <div class="metric-value metric-file" id="fileDisplay">--</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">FPS</div>
+                        <div class="metric-value" id="actualFps">--</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Step</div>
+                        <div class="metric-value" id="stepDisplay">0</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Speed</div>
+                        <div class="metric-value" id="speedDisplay">--</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Distance</div>
+                        <div class="metric-value" id="distDisplay">--</div>
+                    </div>
+                </div>
+
+                <div class="sim-grid">
+                    <article class="sim-panel">
+                        <div class="panel-head">
+                            <h2>Left Panel</h2>
+                            <span id="leftPanelMeta">Waiting for stream...</span>
+                        </div>
+                        <canvas id="canvasA"></canvas>
+                    </article>
+                    <article class="sim-panel">
+                        <div class="panel-head">
+                            <h2>Right Panel</h2>
+                            <span id="rightPanelMeta">Waiting for stream...</span>
+                        </div>
+                        <canvas id="canvasB"></canvas>
+                    </article>
+                </div>
+
+                <article class="sim-panel fitness-panel">
+                    <div class="panel-head">
+                        <h2>Fitness History</h2>
+                        <span id="fitnessMeta">No file loaded</span>
+                    </div>
+                    <div class="fitness-controls">
+                        <div class="control-group">
+                            <label for="fitnessFileSelect">Fitness File</label>
+                            <select id="fitnessFileSelect"></select>
+                        </div>
+                        <div class="control-group">
+                            <label for="robotIndexSelect">Robot Index</label>
+                            <select id="robotIndexSelect"></select>
+                        </div>
+                    </div>
+                    <div class="fitness-legend">
+                        <span><i class="legend-swatch legend-all"></i>All robots</span>
+                        <span><i class="legend-swatch legend-selected"></i>Selected robot</span>
+                        <span><i class="legend-swatch legend-mean"></i>Mean trajectory</span>
+                    </div>
+                    <canvas id="fitnessCanvas" class="fitness-canvas"></canvas>
+                    <div class="fitness-status" id="fitnessStatus"></div>
+                </article>
+            </section>
+
+            <aside id="controls">
+                <h3>Controls</h3>
+
+                <div class="control-group">
+                    <label>Playback</label>
+                    <div class="button-row">
+                        <button id="playPauseBtn" class="btn btn-primary" type="button">Pause</button>
+                        <button id="stepBtn" class="btn" type="button">Step</button>
+                    </div>
+                    <div class="playback-note" id="playbackStateText">Running</div>
+                </div>
+
+                <div class="compare-grid">
+                    <div class="compare-head">
+                        <span></span>
+                        <span>Left</span>
+                        <span>Right</span>
+                    </div>
+
+                    <div class="compare-row">
+                        <label>Generation</label>
+                        <select id="leftGenSelect"></select>
+                        <select id="rightGenSelect"></select>
+                    </div>
+
+                    <div class="compare-row">
+                        <label>View Mode</label>
+                        <select id="leftModeSelect"></select>
+                        <select id="rightModeSelect"></select>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label for="themeSelect">Theme</label>
+                    <select id="themeSelect">
+                        <option value="midnight" selected>Midnight</option>
+                        <option value="paper">Paper</option>
+                        <option value="forest">Forest</option>
+                    </select>
+                </div>
+
+                <div class="control-group control-inline">
+                    <label for="trailToggle">COM Trail</label>
+                    <input id="trailToggle" type="checkbox" checked>
+                </div>
+
+                <small>Both panels share synchronized playback timing. You can pause, step, and compare two modes at the same instant.</small>
+            </aside>
+        </main>
+    </div>
+
+    <script>
+        const canvasA = document.getElementById('canvasA');
+        const canvasB = document.getElementById('canvasB');
+        const ctxA = canvasA.getContext('2d');
+        const ctxB = canvasB.getContext('2d');
+
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        const errorBanner = document.getElementById('errorBanner');
+
+        const fileDisplay = document.getElementById('fileDisplay');
+        const actualFpsDisplay = document.getElementById('actualFps');
+        const stepDisplay = document.getElementById('stepDisplay');
+        const speedDisplay = document.getElementById('speedDisplay');
+        const distDisplay = document.getElementById('distDisplay');
+
+        const leftPanelMeta = document.getElementById('leftPanelMeta');
+        const rightPanelMeta = document.getElementById('rightPanelMeta');
+
+        const leftGenSelect = document.getElementById('leftGenSelect');
+        const rightGenSelect = document.getElementById('rightGenSelect');
+        const leftModeSelect = document.getElementById('leftModeSelect');
+        const rightModeSelect = document.getElementById('rightModeSelect');
+        const playPauseBtn = document.getElementById('playPauseBtn');
+        const stepBtn = document.getElementById('stepBtn');
+        const playbackStateText = document.getElementById('playbackStateText');
+
+        const themeSelect = document.getElementById('themeSelect');
+        const trailToggle = document.getElementById('trailToggle');
+        const fitnessFileSelect = document.getElementById('fitnessFileSelect');
+        const robotIndexSelect = document.getElementById('robotIndexSelect');
+        const fitnessCanvas = document.getElementById('fitnessCanvas');
+        const fitnessCtx = fitnessCanvas.getContext('2d');
+        const fitnessMeta = document.getElementById('fitnessMeta');
+        const fitnessStatus = document.getElementById('fitnessStatus');
+
+
+        const TRAIL_MAX = 240;
+
+        let es = null;
+        let generationList = [];
+        let isPaused = false;
+
+        let fitnessFileList = [];
+        let fitnessHistoryData = [];
+        let fitnessMeanData = [];
+        let selectedFitnessRobotIdx = 0;
+
+        const MODE_OPTIONS = [
+            { value: 'magma', label: 'Magma' },
+            { value: 'viridis', label: 'Viridis' },
+            { value: 'plasma', label: 'Plasma' },
+            { value: 'turbo', label: 'Turbo' },
+            { value: 'coolwarm', label: 'Coolwarm' },
+            { value: 'structure', label: 'Structure' },
+        ];
+
+        const panelState = {
+            left: {
+                springs: [],
+                positions: [],
+                activations: [],
+                centerOfMass: [0, 0],
+                trail: [],
+                file: '--',
+                mode: 'magma',
+            },
+            right: {
+                springs: [],
+                positions: [],
+                activations: [],
+                centerOfMass: [0, 0],
+                trail: [],
+                file: '--',
+                mode: 'structure',
+            },
+        };
+
+        const colormaps = {
+            viridis: [
+                [0.267004, 0.004874, 0.329415], [0.282327, 0.140926, 0.457517],
+                [0.253935, 0.265254, 0.529983], [0.206756, 0.371758, 0.553117],
+                [0.163625, 0.471133, 0.558148], [0.127568, 0.566949, 0.550556],
+                [0.134692, 0.658636, 0.517649], [0.266941, 0.748751, 0.440573],
+                [0.477504, 0.821444, 0.318195], [0.741388, 0.873449, 0.149561],
+                [0.993248, 0.906157, 0.143936]
+            ],
+            plasma: [
+                [0.050383, 0.029803, 0.527975], [0.254627, 0.013882, 0.615419],
+                [0.417642, 0.000564, 0.65839], [0.562738, 0.051545, 0.641509],
+                [0.69284, 0.165141, 0.564522], [0.798216, 0.280197, 0.469538],
+                [0.881443, 0.392529, 0.383229], [0.949217, 0.517763, 0.295662],
+                [0.98826, 0.652325, 0.211364], [0.988648, 0.809579, 0.145357],
+                [0.940015, 0.975158, 0.131326]
+            ],
+            turbo: [
+                [0.18995, 0.07176, 0.23217], [0.25107, 0.25237, 0.63374],
+                [0.19549, 0.4585, 0.86924], [0.12394, 0.63319, 0.85315],
+                [0.23304, 0.77508, 0.67314], [0.47961, 0.87612, 0.44579],
+                [0.73006, 0.9374, 0.25597], [0.9189, 0.9164, 0.17703],
+                [0.99324, 0.76934, 0.15501], [0.9658, 0.52957, 0.14575],
+                [0.84299, 0.28068, 0.11851]
+            ],
+            coolwarm: [
+                [0.229739, 0.298717, 0.753683], [0.346476, 0.444423, 0.858177],
+                [0.489152, 0.591687, 0.936514], [0.641509, 0.730526, 0.980907],
+                [0.787892, 0.852873, 0.988989], [0.867993, 0.867993, 0.867993],
+                [0.983868, 0.796564, 0.739153], [0.962552, 0.635266, 0.564522],
+                [0.913099, 0.466163, 0.407843], [0.831373, 0.298039, 0.275163],
+                [0.705882, 0.015686, 0.14902]
+            ],
+            magma: [
+                [0.001462, 0.000466, 0.013866], [0.063536, 0.028426, 0.118956],
+                [0.188923, 0.071159, 0.232229], [0.316654, 0.071689, 0.314706],
+                [0.444667, 0.074981, 0.383823], [0.566949, 0.09429, 0.440529],
+                [0.68028, 0.131803, 0.484307], [0.780105, 0.188923, 0.515993],
+                [0.864406, 0.265113, 0.536616], [0.93301, 0.359688, 0.548053],
+                [0.987053, 0.991438, 0.749504]
+            ]
+        };
+
+        const panels = [
+            { key: 'left', canvas: canvasA, ctx: ctxA },
+            { key: 'right', canvas: canvasB, ctx: ctxB }
+        ];
+
+        function basename(path) {
+            if (!path) return '--';
+            const parts = path.split(/[/\\]/);
+            return parts[parts.length - 1];
+        }
+
+        function modeLabel(modeValue) {
+            const found = MODE_OPTIONS.find((item) => item.value === modeValue);
+            return found ? found.label : modeValue;
+        }
+
+        function cssVar(name) {
+            return getComputedStyle(document.body).getPropertyValue(name).trim();
+        }
+
+        function setStatus(text, stateClass) {
+            statusText.textContent = text;
+            statusDot.className = `status-dot ${stateClass}`;
+        }
+
+        function setFriendlyError(message) {
+            if (!message) {
+                errorBanner.hidden = true;
+                errorBanner.textContent = '';
+                return;
+            }
+            errorBanner.hidden = false;
+            errorBanner.textContent = message;
+        }
+
+        function resizeCanvases() {
+            for (const panel of panels) {
+                const rect = panel.canvas.getBoundingClientRect();
+                panel.canvas.width = Math.max(1, Math.floor(rect.width));
+                panel.canvas.height = Math.max(1, Math.floor(rect.height));
+            }
+
+            const fRect = fitnessCanvas.getBoundingClientRect();
+            fitnessCanvas.width = Math.max(1, Math.floor(fRect.width));
+            fitnessCanvas.height = Math.max(1, Math.floor(fRect.height));
+        }
+
+        function updatePlaybackUI() {
+            playPauseBtn.textContent = isPaused ? 'Play' : 'Pause';
+            playbackStateText.textContent = isPaused ? 'Paused' : 'Running';
+            stepBtn.disabled = !isPaused;
+        }
+
+        async function sendPlayback(action) {
+            const res = await fetch('/playback', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setFriendlyError(data.error || 'Playback control failed.');
+                return null;
+            }
+            if (data.paused !== undefined) {
+                isPaused = Boolean(data.paused);
+                updatePlaybackUI();
+            }
+            return data;
+        }
+
+        function pushTrail(panelKey, com) {
+            const state = panelState[panelKey];
+            state.trail.push([com[0], com[1]]);
+            if (state.trail.length > TRAIL_MAX) state.trail.shift();
+        }
+
+        function normalizeActivation(value) {
+            return 0.5 + 0.5 * Math.tanh(value || 0);
+        }
+
+        function getColorFromScale(value, cmapName) {
+            const v = Math.max(0, Math.min(1, value));
+            const cmap = colormaps[cmapName] || colormaps.magma;
+            const n = cmap.length - 1;
+            const idx = v * n;
+            const i0 = Math.floor(idx);
+            const i1 = Math.min(n, Math.ceil(idx));
+            const t = idx - i0;
+            const c0 = cmap[i0];
+            const c1 = cmap[i1];
+            const r = Math.floor((c0[0] + t * (c1[0] - c0[0])) * 255);
+            const g = Math.floor((c0[1] + t * (c1[1] - c0[1])) * 255);
+            const b = Math.floor((c0[2] + t * (c1[2] - c0[2])) * 255);
+            return `rgb(${r},${g},${b})`;
+        }
+
+        function worldToScreen(panel, state, x, y) {
+            const scale = Math.min(panel.canvas.width, panel.canvas.height) * 0.8;
+            const cx = panel.canvas.width / 2;
+            const cy = panel.canvas.height * 0.82;
+            const offsetX = x - state.centerOfMass[0];
+            return {
+                x: cx + offsetX * scale,
+                y: cy - y * scale
+            };
+        }
+
+        function drawBackground(panel) {
+            const { ctx, canvas } = panel;
+            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            gradient.addColorStop(0.0, cssVar('--sim-bg-top'));
+            gradient.addColorStop(0.55, cssVar('--sim-bg-mid'));
+            gradient.addColorStop(1.0, cssVar('--sim-bg-bottom'));
+
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.fillStyle = cssVar('--sim-fog');
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        function drawGround(panel, state) {
+            const { ctx, canvas } = panel;
+            const gridSpacing = 0.5;
+            const scale = Math.min(canvas.width, canvas.height) * 0.8;
+            const numLines = Math.ceil(canvas.width / scale / gridSpacing) + 3;
+            const startX = Math.floor(state.centerOfMass[0] / gridSpacing) * gridSpacing - (numLines / 2) * gridSpacing;
+            const groundY = worldToScreen(panel, state, 0, 0.02).y;
+
+            ctx.strokeStyle = cssVar('--grid-line');
+            ctx.lineWidth = 1.5;
+            for (let i = 0; i < numLines; i++) {
+                const wx = startX + i * gridSpacing;
+                const sp = worldToScreen(panel, state, wx, 0);
+                ctx.beginPath();
+                ctx.moveTo(sp.x, groundY);
+                ctx.lineTo(sp.x, canvas.height);
+                ctx.stroke();
+            }
+
+            ctx.strokeStyle = cssVar('--ground-line');
+            ctx.lineWidth = 2.5;
+            ctx.beginPath();
+            ctx.moveTo(0, groundY);
+            ctx.lineTo(canvas.width, groundY);
+            ctx.stroke();
+        }
+
+        function drawTrail(panel, state) {
+            if (!trailToggle.checked || state.trail.length < 2) return;
+            const { ctx } = panel;
+            ctx.save();
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+
+            for (let i = 1; i < state.trail.length; i++) {
+                const t = i / (state.trail.length - 1);
+                const p0 = worldToScreen(panel, state, state.trail[i - 1][0], 0.02);
+                const p1 = worldToScreen(panel, state, state.trail[i][0], 0.02);
+                const alpha = panel.key === 'left' ? (0.05 + 0.5 * t) : (0.04 + 0.3 * t);
+                ctx.strokeStyle = `rgba(255, 209, 102, ${alpha})`;
+                ctx.lineWidth = panel.key === 'left' ? (1.5 + 4 * t) : (1 + 2.3 * t);
+                ctx.beginPath();
+                ctx.moveTo(p0.x, p0.y);
+                ctx.lineTo(p1.x, p1.y);
+                ctx.stroke();
+            }
+
+            ctx.restore();
+        }
+
+        function drawRobot(panel, state) {
+            if (state.positions.length === 0) return;
+            const { ctx } = panel;
+            const mode = state.mode;
+            const structureOnly = mode === 'structure';
+
+            for (let i = 0; i < state.springs.length; i++) {
+                const spring = state.springs[i];
+                const p1 = state.positions[spring[0]];
+                const p2 = state.positions[spring[1]];
+                if (!p1 || !p2) continue;
+
+                const s1 = worldToScreen(panel, state, p1[0], p1[1]);
+                const s2 = worldToScreen(panel, state, p2[0], p2[1]);
+
+                if (structureOnly) {
+                    ctx.strokeStyle = cssVar('--spring-muted');
+                    ctx.lineWidth = 2;
+                } else {
+                    const normalizedAct = normalizeActivation(state.activations[i]);
+                    ctx.strokeStyle = getColorFromScale(normalizedAct, mode);
+                    ctx.lineWidth = 1.8 + 1.7 * normalizedAct;
+                }
+
+                ctx.beginPath();
+                ctx.moveTo(s1.x, s1.y);
+                ctx.lineTo(s2.x, s2.y);
+                ctx.stroke();
+            }
+
+            for (let i = 0; i < state.positions.length; i++) {
+                const pos = state.positions[i];
+                if (!pos) continue;
+                const point = worldToScreen(panel, state, pos[0], pos[1]);
+                ctx.fillStyle = structureOnly ? cssVar('--mass-muted') : cssVar('--mass-color');
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 3.5, 0, 2 * Math.PI);
+                ctx.fill();
+            }
+        }
+
+        function drawPanel(panel) {
+            const state = panelState[panel.key];
+            drawBackground(panel);
+            drawGround(panel, state);
+            drawTrail(panel, state);
+            drawRobot(panel, state);
+        }
+
+        function drawAll() {
+            for (const panel of panels) drawPanel(panel);
+        }
+
+
+        function setFitnessStatus(message) {
+            fitnessStatus.textContent = message || '';
+        }
+
+        function drawFitnessChart() {
+            const ctx = fitnessCtx;
+            const canvas = fitnessCanvas;
+            const width = canvas.width;
+            const height = canvas.height;
+
+            ctx.clearRect(0, 0, width, height);
+            ctx.fillStyle = cssVar('--bg-elev');
+            ctx.fillRect(0, 0, width, height);
+
+            if (!fitnessHistoryData.length) {
+                ctx.fillStyle = cssVar('--text-muted');
+                ctx.font = '13px "IBM Plex Sans", sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('No fitness data loaded', width / 2, height / 2);
+                return;
+            }
+
+            const nRobots = fitnessHistoryData.length;
+            const nSteps = Math.max(...fitnessHistoryData.map((row) => row.length));
+            if (nSteps <= 0) {
+                return;
+            }
+
+            let yMin = Infinity;
+            let yMax = -Infinity;
+            for (const row of fitnessHistoryData) {
+                for (const value of row) {
+                    if (value < yMin) yMin = value;
+                    if (value > yMax) yMax = value;
+                }
+            }
+
+            if (!Number.isFinite(yMin) || !Number.isFinite(yMax)) {
+                setFitnessStatus('Fitness file has invalid numeric values.');
+                return;
+            }
+
+            if (yMin === yMax) {
+                yMin -= 1;
+                yMax += 1;
+            } else {
+                const pad = 0.08 * (yMax - yMin);
+                yMin -= pad;
+                yMax += pad;
+            }
+
+            const margin = { left: 58, right: 14, top: 16, bottom: 34 };
+            const plotW = Math.max(10, width - margin.left - margin.right);
+            const plotH = Math.max(10, height - margin.top - margin.bottom);
+
+            const toX = (step) => {
+                if (nSteps <= 1) return margin.left;
+                return margin.left + (step / (nSteps - 1)) * plotW;
+            };
+            const toY = (value) => margin.top + (yMax - value) / (yMax - yMin) * plotH;
+
+            ctx.strokeStyle = 'rgba(180, 200, 224, 0.22)';
+            ctx.lineWidth = 1;
+            ctx.font = '11px "IBM Plex Sans", sans-serif';
+            ctx.fillStyle = cssVar('--text-muted');
+            ctx.textAlign = 'right';
+
+            for (let i = 0; i <= 4; i++) {
+                const t = i / 4;
+                const y = margin.top + t * plotH;
+                const value = yMax - t * (yMax - yMin);
+                ctx.beginPath();
+                ctx.moveTo(margin.left, y);
+                ctx.lineTo(margin.left + plotW, y);
+                ctx.stroke();
+                ctx.fillText(value.toFixed(2), margin.left - 6, y + 4);
+            }
+
+            ctx.textAlign = 'center';
+            for (let i = 0; i <= 4; i++) {
+                const step = nSteps <= 1 ? 0 : Math.round((i / 4) * (nSteps - 1));
+                const x = toX(step);
+                ctx.fillText(String(step), x, margin.top + plotH + 18);
+            }
+
+            ctx.strokeStyle = 'rgba(168, 186, 211, 0.27)';
+            ctx.lineWidth = 1;
+            for (const row of fitnessHistoryData) {
+                if (!row || row.length < 2) continue;
+                ctx.beginPath();
+                for (let i = 0; i < row.length; i++) {
+                    const x = toX(i);
+                    const y = toY(row[i]);
+                    if (i === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                }
+                ctx.stroke();
+            }
+
+            if (fitnessMeanData.length >= 2) {
+                ctx.strokeStyle = '#ffd166';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                for (let i = 0; i < fitnessMeanData.length; i++) {
+                    const x = toX(i);
+                    const y = toY(fitnessMeanData[i]);
+                    if (i === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                }
+                ctx.stroke();
+            }
+
+            const selected = fitnessHistoryData[Math.max(0, Math.min(selectedFitnessRobotIdx, nRobots - 1))];
+            if (selected && selected.length >= 2) {
+                ctx.strokeStyle = cssVar('--accent');
+                ctx.lineWidth = 2.8;
+                ctx.beginPath();
+                for (let i = 0; i < selected.length; i++) {
+                    const x = toX(i);
+                    const y = toY(selected[i]);
+                    if (i === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                }
+                ctx.stroke();
+            }
+
+            ctx.fillStyle = cssVar('--text-muted');
+            ctx.font = '12px "IBM Plex Sans", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('Training Step', margin.left + plotW * 0.5, height - 8);
+
+            ctx.save();
+            ctx.translate(13, margin.top + plotH * 0.5);
+            ctx.rotate(-Math.PI / 2);
+            ctx.fillText('Fitness', 0, 0);
+            ctx.restore();
+        }
+
+        function populateFitnessFileSelect(options, selectedFile) {
+            fitnessFileSelect.innerHTML = '';
+            for (const item of options) {
+                const opt = document.createElement('option');
+                opt.value = item.file;
+                opt.textContent = item.label;
+                if (item.file === selectedFile) opt.selected = true;
+                fitnessFileSelect.appendChild(opt);
+            }
+
+            if (!fitnessFileSelect.value && options.length > 0) {
+                fitnessFileSelect.value = options[0].file;
+            }
+        }
+
+        function populateRobotIndexSelect(count, selectedIdx) {
+            robotIndexSelect.innerHTML = '';
+            const n = Math.max(0, count || 0);
+            for (let i = 0; i < n; i++) {
+                const opt = document.createElement('option');
+                opt.value = String(i);
+                opt.textContent = `Robot ${i}`;
+                if (i === selectedIdx) opt.selected = true;
+                robotIndexSelect.appendChild(opt);
+            }
+
+            if (n === 0) {
+                const opt = document.createElement('option');
+                opt.value = '0';
+                opt.textContent = 'No robots';
+                robotIndexSelect.appendChild(opt);
+            }
+        }
+
+        async function loadFitnessFiles() {
+            setFitnessStatus('');
+            const res = await fetch('/fitness_files');
+            const data = await res.json().catch(() => ({}));
+
+            if (!res.ok) {
+                setFitnessStatus(data.error || 'Failed to load fitness file list.');
+                fitnessHistoryData = [];
+                fitnessMeanData = [];
+                drawFitnessChart();
+                return;
+            }
+
+            fitnessFileList = data.files || [];
+            if (fitnessFileList.length === 0) {
+                fitnessMeta.textContent = 'No *fitness*.npy files found';
+                fitnessFileSelect.innerHTML = '';
+                robotIndexSelect.innerHTML = '';
+                fitnessHistoryData = [];
+                fitnessMeanData = [];
+                setFitnessStatus('Drop a *fitness*.npy file in this folder and refresh.');
+                drawFitnessChart();
+                return;
+            }
+
+            const selected = fitnessFileSelect.value || fitnessFileList[0].file;
+            populateFitnessFileSelect(fitnessFileList, selected);
+            await loadFitnessHistoryFile(fitnessFileSelect.value);
+        }
+
+        async function loadFitnessHistoryFile(filePath) {
+            setFitnessStatus('');
+            const res = await fetch('/fitness_history', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ file: filePath })
+            });
+            const data = await res.json().catch(() => ({}));
+
+            if (!res.ok || !data.ok) {
+                fitnessHistoryData = [];
+                fitnessMeanData = [];
+                fitnessMeta.textContent = 'Unable to load file';
+                setFitnessStatus(data.error || 'Unable to load selected fitness history file.');
+                drawFitnessChart();
+                return;
+            }
+
+            fitnessHistoryData = data.fitness_history || [];
+            fitnessMeanData = data.mean || [];
+            const nRobots = Number(data.n_robots || fitnessHistoryData.length || 0);
+            selectedFitnessRobotIdx = Math.max(0, Math.min(selectedFitnessRobotIdx, Math.max(0, nRobots - 1)));
+            populateRobotIndexSelect(nRobots, selectedFitnessRobotIdx);
+            robotIndexSelect.value = String(selectedFitnessRobotIdx);
+            fitnessMeta.textContent = `${basename(data.file)} | ${nRobots} robots | ${data.n_steps || 0} steps`;
+            drawFitnessChart();
+        }
+
+        function updatePanelMeta() {
+            leftPanelMeta.textContent = `${basename(panelState.left.file)} | ${modeLabel(panelState.left.mode)}`;
+            rightPanelMeta.textContent = `${basename(panelState.right.file)} | ${modeLabel(panelState.right.mode)}`;
+            fileDisplay.textContent = `L ${basename(panelState.left.file)} | R ${basename(panelState.right.file)}`;
+        }
+
+        function populateGenerationSelect(selectEl, options, selectedValue) {
+            selectEl.innerHTML = '';
+            for (const item of options) {
+                const opt = document.createElement('option');
+                opt.value = item.file;
+                opt.textContent = item.label;
+                if (item.file === selectedValue) opt.selected = true;
+                selectEl.appendChild(opt);
+            }
+
+            if (!selectEl.value && options.length > 0) {
+                selectEl.value = options[0].file;
+            }
+        }
+
+        function populateModeSelect(selectEl, selectedValue) {
+            selectEl.innerHTML = '';
+            for (const option of MODE_OPTIONS) {
+                const opt = document.createElement('option');
+                opt.value = option.value;
+                opt.textContent = option.label;
+                if (option.value === selectedValue) opt.selected = true;
+                selectEl.appendChild(opt);
+            }
+        }
+
+        function syncModeFromControls() {
+            panelState.left.mode = leftModeSelect.value;
+            panelState.right.mode = rightModeSelect.value;
+            updatePanelMeta();
+            drawAll();
+        }
+
+        async function loadGenerationList() {
+            const res = await fetch('/generations');
+            const data = await res.json();
+
+            generationList = data.generations || [];
+
+            const leftCurrent = data.current?.left || generationList[0]?.file || '';
+            const rightCurrent = data.current?.right || generationList[generationList.length - 1]?.file || leftCurrent;
+
+            populateGenerationSelect(leftGenSelect, generationList, leftCurrent);
+            populateGenerationSelect(rightGenSelect, generationList, rightCurrent);
+
+            if (data.paused !== undefined) {
+                isPaused = Boolean(data.paused);
+                updatePlaybackUI();
+            }
+        }
+
+        async function applyGenerationSelection() {
+            setFriendlyError('');
+
+            const payload = {
+                left: leftGenSelect.value,
+                right: rightGenSelect.value,
+            };
+
+            const res = await fetch('/set_generations', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const data = await res.json().catch(() => ({}));
+
+            if (!res.ok) {
+                setFriendlyError(data.error || 'Unable to load selected generation files.');
+                return;
+            }
+
+            if (data.current) {
+                if (data.current.left) leftGenSelect.value = data.current.left;
+                if (data.current.right) rightGenSelect.value = data.current.right;
+            }
+
+            if (data.paused !== undefined) {
+                isPaused = Boolean(data.paused);
+                updatePlaybackUI();
+            }
+
+            panelState.left.trail = [];
+            panelState.right.trail = [];
+            startStream();
+        }
+
+        function startStream() {
+            if (es) es.close();
+            setStatus('Connecting...', 'is-warning');
+            es = new EventSource('/stream');
+
+            es.onopen = () => setStatus('Live', 'is-live');
+
+            es.onmessage = (event) => {
+                if (!event.data) return;
+
+                const msg = JSON.parse(event.data);
+
+                if (msg.type === 'error') {
+                    setStatus('Paused', 'is-warning');
+                    setFriendlyError(msg.message || 'Streaming error.');
+                    isPaused = true;
+                    updatePlaybackUI();
+                    return;
+                }
+
+                if (msg.type === 'playback') {
+                    if (msg.paused !== undefined) {
+                        isPaused = Boolean(msg.paused);
+                        updatePlaybackUI();
+                    }
+                    if (msg.step !== undefined) {
+                        stepDisplay.textContent = msg.step;
+                    }
+                    return;
+                }
+
+                if (msg.type === 'topology') {
+                    const topPanels = msg.panels || {};
+                    for (const key of ['left', 'right']) {
+                        const top = topPanels[key] || {};
+                        panelState[key].springs = top.springs || [];
+                        panelState[key].file = top.robot_file || '--';
+                        panelState[key].positions = [];
+                        panelState[key].activations = [];
+                        panelState[key].centerOfMass = [0, 0];
+                        panelState[key].trail = [];
+                    }
+
+                    if (msg.current) {
+                        if (msg.current.left) leftGenSelect.value = msg.current.left;
+                        if (msg.current.right) rightGenSelect.value = msg.current.right;
+                    }
+
+                    if (msg.paused !== undefined) {
+                        isPaused = Boolean(msg.paused);
+                        updatePlaybackUI();
+                    }
+                    if (msg.step !== undefined) {
+                        stepDisplay.textContent = msg.step;
+                    }
+
+                    updatePanelMeta();
+                    drawAll();
+                    return;
+                }
+
+                if (msg.type === 'step') {
+                    const stepPanels = msg.panels || {};
+
+                    for (const key of ['left', 'right']) {
+                        const stepData = stepPanels[key];
+                        if (!stepData) continue;
+
+                        panelState[key].positions = stepData.positions || [];
+                        panelState[key].activations = stepData.activations || [];
+                        panelState[key].centerOfMass = stepData.center_of_mass || [0, 0];
+                        pushTrail(key, panelState[key].centerOfMass);
+                    }
+
+                    const leftSpeed = stepPanels.left?.speed;
+                    const rightSpeed = stepPanels.right?.speed;
+                    if (leftSpeed !== undefined && rightSpeed !== undefined) {
+                        speedDisplay.textContent = `L ${leftSpeed.toFixed(3)} | R ${rightSpeed.toFixed(3)}`;
+                    }
+
+                    const leftDist = stepPanels.left?.dist;
+                    const rightDist = stepPanels.right?.dist;
+                    if (leftDist !== undefined && rightDist !== undefined) {
+                        distDisplay.textContent = `L ${leftDist.toFixed(3)} | R ${rightDist.toFixed(3)}`;
+                    }
+
+                    if (msg.step !== undefined) {
+                        stepDisplay.textContent = msg.step;
+                    }
+                    if (msg.fps !== undefined) {
+                        actualFpsDisplay.textContent = msg.fps.toFixed(0);
+                    }
+                    if (msg.paused !== undefined) {
+                        isPaused = Boolean(msg.paused);
+                        updatePlaybackUI();
+                    }
+
+                    drawAll();
+                }
+            };
+
+            es.onerror = () => {
+                setStatus('Reconnecting...', 'is-warning');
+            };
+        }
+
+        leftGenSelect.addEventListener('change', applyGenerationSelection);
+        rightGenSelect.addEventListener('change', applyGenerationSelection);
+
+        leftModeSelect.addEventListener('change', syncModeFromControls);
+        rightModeSelect.addEventListener('change', syncModeFromControls);
+
+        playPauseBtn.addEventListener('click', async () => {
+            await sendPlayback('toggle');
+        });
+
+        stepBtn.addEventListener('click', async () => {
+            await sendPlayback('step');
+        });
+
+        themeSelect.addEventListener('change', () => {
+            document.body.dataset.theme = themeSelect.value;
+            drawAll();
+            drawFitnessChart();
+        });
+
+        trailToggle.addEventListener('change', () => drawAll());
+
+        fitnessFileSelect.addEventListener('change', async () => {
+            selectedFitnessRobotIdx = 0;
+            await loadFitnessHistoryFile(fitnessFileSelect.value);
+        });
+
+        robotIndexSelect.addEventListener('change', () => {
+            selectedFitnessRobotIdx = Number(robotIndexSelect.value || 0);
+            drawFitnessChart();
+        });
+
+
+        window.addEventListener('resize', () => {
+            resizeCanvases();
+            drawAll();
+            drawFitnessChart();
+        });
+
+        window.addEventListener('load', async () => {
+            populateModeSelect(leftModeSelect, panelState.left.mode);
+            populateModeSelect(rightModeSelect, panelState.right.mode);
+            updatePanelMeta();
+            updatePlaybackUI();
+
+            resizeCanvases();
+            await loadGenerationList();
+            await loadFitnessFiles();
+            await sendPlayback('status');
+            startStream();
+            drawAll();
+            drawFitnessChart();
+        });
+    </script>
+</body>
+</html>
