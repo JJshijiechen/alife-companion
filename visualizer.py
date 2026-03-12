@@ -48,6 +48,7 @@ robot_files = []
 generation_files = []
 generation_options = []
 fitness_files = []
+results_dir = ""
 args = None
 
 
@@ -75,15 +76,20 @@ def make_generation_option(path: str) -> dict:
     }
 
 
-def discover_saved_files(default_input: str):
-    files = sorted(glob.glob("robot_*.npy") + glob.glob("best_robot_gen_*.npy"))
+def _glob_from_results(pattern: str, recursive: bool = False):
+    if results_dir:
+        return glob.glob(os.path.join(results_dir, pattern), recursive=recursive)
+    return glob.glob(pattern, recursive=recursive)
 
-    if os.path.exists(default_input) and default_input not in files:
+def discover_saved_files(default_input: str):
+    files = sorted(_glob_from_results("robot_*.npy") + _glob_from_results("best_robot_gen_*.npy"))
+
+    if default_input and os.path.exists(default_input) and default_input not in files:
         files.append(default_input)
 
     files = sorted(set(files))
 
-    generations = sorted(glob.glob("best_robot_gen_*.npy"))
+    generations = sorted(_glob_from_results("best_robot_gen_*.npy"))
     if not generations:
         generations = files.copy()
 
@@ -91,7 +97,10 @@ def discover_saved_files(default_input: str):
 
 
 def discover_fitness_files():
-    files = glob.glob("*fitness*.npy") + glob.glob("**/*fitness*.npy", recursive=True)
+    if results_dir:
+        files = _glob_from_results("*fitness*.npy")
+    else:
+        files = _glob_from_results("*fitness*.npy") + _glob_from_results("**/*fitness*.npy", recursive=True)
     files = [path for path in files if os.path.isfile(path)]
     return sorted(set(files))
 
@@ -882,11 +891,17 @@ def set_robot():
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument("--input", type=str, default="robot_0.npy", help="Path to saved robot .npy file")
+    parser.add_argument("--input", type=str, default="robot_0.npy", help="Path to saved robot .npy file or basename inside --results")
+    parser.add_argument("--results", type=str, default="", help="Directory containing saved results (.npy files)")
     parser.add_argument("--config", type=str, default="config.yaml", help="Path to config file")
     parser.add_argument("--port", type=int, default=5000)
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
+
+    if args.results:
+        results_dir = os.path.abspath(args.results)
+        if not os.path.isdir(results_dir):
+            raise RuntimeError(f"Results directory not found: {results_dir}")
 
     robot_files, generation_files = discover_saved_files(args.input)
     generation_options = [make_generation_option(path) for path in generation_files]
