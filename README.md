@@ -29,6 +29,21 @@ It also expects compatible result files such as robot `.npy` files and fitness h
 
 ---
 
+## Quick Start:
+
+Run with a specific results folder:
+
+```bash
+python visualizer.py --results results/phc
+python visualizer.py --results results/ga
+```
+Or run with local default file discovery:
+```bash
+python visualizer.py
+```
+
+---
+
 ## Supported files
 
 ### Robot files
@@ -42,20 +57,6 @@ Examples:
 - `fitness_history.npy`
 - files matching `*fitness*.npy`
 
----
-
-## Usage
-
-Run with a specific results folder:
-
-```bash
-python visualizer.py --results results/phc
-python visualizer.py --results results/ga
-```
-Or run with local default file discovery:
-```bash
-python visualizer.py
-```
 ---
 
 ## Structure
