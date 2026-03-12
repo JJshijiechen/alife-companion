@@ -96,3 +96,14 @@ project/
 ## Author
 
 Built by Shijie (Jason) Chen as a companion analysis tool for the alife-sim ecosystem.
+
+---
+
+## Credits
+
+This project builds on results generated from the original [`ALife-Sim`](https://github.com/lstrgar/ALife-Sim) repository by **Luke Strgar**.
+Some components in this project are adapted from or designed to work directly with the original `ALife-Sim` codebase. 
+The original repository provides the simulation platform and training framework for artificial life robots.  Please refer to the original repository for the base simulation framework.
+`alife-companion` is a companion visualization and analysis tool built to work with those generated robot and fitness files.
+
+Credit for the original simulation code and training framework belongs to the original `ALife-Sim` project and its author.
